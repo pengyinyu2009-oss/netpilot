@@ -1,0 +1,23 @@
+services:
+  collector:
+    build:
+      context: .
+      dockerfile: services/collector/Dockerfile
+      args:
+        WEB_IMAGE: ${NETPILOT_WEB_IMAGE:-node:20-alpine}    # 受限网络可换本机已有镜像
+        RUN_IMAGE: ${NETPILOT_RUN_IMAGE:-node:22-slim}
+    container_name: netpilot-collector
+    restart: unless-stopped
+    ports:
+      - "8898:8898"          # 仅 LAN+Tailscale 可达；切勿映射到公网
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # 容器→宿主机探针（绕开 fnOS bond1 策略路由黑洞）
+    env_file: .env
+    volumes:
+      - ./network.yaml:/app/network.yaml:ro
+      - ./keys:/app/keys:ro          # pull 型 agent 的 SSH 私钥（aly 等）
+      - netpilot-data:/data
+    mem_limit: 256m
+
+volumes:
+  netpilot-data:

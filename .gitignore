@@ -1,0 +1,16 @@
+node_modules
+dist
+.data
+.env
+*.log
+.DS_Store
+services/collector/core-src
+packages/web/dist/*
+!packages/web/dist/.gitkeep
+
+# SSH 私钥（compose 挂载 :ro，绝不入库）
+keys/
+# 本地实配（setup.sh 从 network.example.yaml 生成）
+network.yaml
+# 本地运维脚本（含真实拓扑）
+examples/home-net/scripts/

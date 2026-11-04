@@ -1,0 +1,151 @@
+# NetPilot 舰队声明 —— 唯一配置源（M4 起 R68S yaml 也由它生成）
+# 占位符 ${VAR} 从 collector 的 .env 读取；本文件可安全提交，密钥只进 .env
+fleet:
+  name: home-net
+  timezone: Asia/Shanghai
+
+router:
+  id: r68s
+  name: R68S 旁路由
+  host: 192.0.2.1
+  api:
+    port: 9090
+    secret: ${MIHOMO_SECRET}
+  ssh:                      # 仅用于 restart_openclash 等受控写操作
+    user: root
+    password: ${R68S_SSH_PASSWORD}
+  lanscan:                  # 局域网新设备发现：经 R68S ARP 表扫描，新 MAC 告警+通知
+    enabled: true
+    everySeconds: 90
+  groups:                   # 仪表盘分组视图的顺序
+    - AI-US
+    - AGY-US
+    - HK-Web
+    - BIGFILE
+    - CF-OUT
+    - MAIL-CN
+    - PROXY
+    - NS-机场
+
+devices:                    # 舰队成员；probe 由 collector 主动测量
+  - id: mainrouter
+    name: 主路由 (小米)
+    host: 192.0.2.254
+    role: gateway
+    probes:
+      - { type: icmp }       # 无法装 agent 的设备走 ICMP/TCP 探针即可
+  - id: nas
+    name: NAS (飞牛 EQ14)
+    host: 192.0.2.10
+    role: collector-host
+    probes:
+      # fnOS 在 bond1 配了 from 192.0.2.10 的策略路由，容器探宿主机 LAN IP 时
+      # sshd 回包源=.205 命中规则走 bond1 黑洞；打 host-gateway 回包源=网桥 IP 绕开规则
+      - { type: tcp, port: 22, host: host.docker.internal }
+  - id: r68s
+    name: R68S 旁路由
+    host: 192.0.2.1
+    role: router
+    probes:
+      - { type: tcp, port: 22 }
+      - { type: http, url: "http://192.0.2.1:9090/version", secret: ${MIHOMO_SECRET} }
+  - id: win
+    name: Win 笔记本
+    host: 192.0.2.20
+    role: workstation
+    probes:
+      - { type: tcp, port: 22 }
+  - id: mac
+    name: Mac
+    host: 192.0.2.109
+    role: workstation
+    probes:
+      - { type: tcp, port: 22 }
+  - id: tablet
+    name: 平板 Tab S8
+    host: 192.0.2.40
+    role: mobile
+    probes:
+      - { type: icmp }
+
+exits:                      # 自建出口；机场由 mihomo provider 提供（自动纳入）
+  - id: hk
+    name: 香港-VPS
+    host: 203.0.113.10
+    probes:
+      - { type: tcp, port: 2010 }
+      - { type: tcp, port: 443 }
+  - id: usvps
+    name: 美国-VPS (WARP出口)
+    host: 203.0.113.20
+    probes:
+      - { type: tcp, port: 35418 }
+      - { type: tcp, port: 8443 }
+  - id: aly
+    name: 阿里云枢纽
+    host: 203.0.113.30
+    probes:
+      - { type: tcp, port: 22 }
+      - { type: tcp, port: 443 }
+    agent:                    # 不在 tailnet，collector 走 SSH 定期拉取（--once 输出 JSON）
+      pull:
+        user: root
+        key: /app/keys/aly_ed25519
+        everySeconds: 60
+  - id: gcp
+    name: GCP-US
+    host: 203.0.113.40
+    probes:
+      - { type: tcp, port: 443 }
+
+# M3 修复引擎：每条守护=一条规则；check 连续 failStreak 轮失败 → 执行 heal + 告警通知
+# 运行时开关存 DB（Web/MCP 可切换，重启不丢）；规则本体改这里后 docker compose up -d 重建生效
+repairs:
+  - id: ai-us-liveness
+    name: AI-US 出口探活自动切换
+    enabled: true
+    everySeconds: 300
+    check: { kind: group_alive, group: AI-US }
+    heal: { kind: switch_group_best, group: AI-US }
+
+  - id: agy-us-liveness
+    name: AGY-US 出口探活自动切换
+    enabled: true
+    everySeconds: 300
+    check: { kind: group_alive, group: AGY-US }
+    heal: { kind: switch_group_best, group: AGY-US }
+
+  - id: hk-cert-expiry
+    name: hk 证书到期预警
+    enabled: true
+    everySeconds: 21600          # 6h
+    failStreak: 1
+    check: { kind: cert_days, host: 203.0.113.10, port: 443, minDays: 14 }
+
+  - id: usvps-wireproxy-guard
+    name: usvps wireproxy 守卫
+    enabled: true
+    everySeconds: 120
+    check: { kind: tcp, host: 203.0.113.20, port: 8443 }
+    heal: { kind: ssh, host: 203.0.113.20, user: root, port: 35418, key: /app/keys/usvps_root, command: "systemctl restart wireproxy && sleep 2 && systemctl is-active wireproxy" }
+
+  - id: win-sshd-drift
+    name: Win sshd 授权自愈
+    enabled: true
+    everySeconds: 1800           # 30min
+    failStreak: 1                # 漂移是确定性的，无瞬时抖动
+    check: { kind: ssh_expect, host: 192.0.2.20, user: pyy, key: /app/keys/win_ed25519, command: "powershell -NoProfile -ExecutionPolicy Bypass -File C:/netpilot/check-sshd.ps1", expect: "^0$" }
+    heal: { kind: ssh, host: 192.0.2.20, user: pyy, key: /app/keys/win_ed25519, command: "powershell -NoProfile -ExecutionPolicy Bypass -File C:/ProgramData/ssh-selfheal.ps1" }
+
+  - id: natpmp-storm
+    name: NAT-PMP 风暴检测
+    enabled: true
+    everySeconds: 300
+    failStreak: 2
+    check: { kind: ssh_threshold, host: 192.0.2.1, user: root, passwordEnv: R68S_SSH_PASSWORD, command: "awk '/dport=5351/{n++} END{print n+0}' /proc/net/nf_conntrack 2>/dev/null", max: 50 }
+
+  - id: grok-session-guard
+    name: Grok 会话超龄收割（占位，待确认语义）
+    enabled: false               # 原收割脚本未找到；桌面 App 进程常驻会误报，先禁用占位
+    everySeconds: 1800
+    check: { kind: ssh_expect, host: 192.0.2.20, user: pyy, key: /app/keys/win_ed25519, command: "powershell -NoProfile -ExecutionPolicy Bypass -File C:/netpilot/check-grok.ps1", expect: "^0$" }

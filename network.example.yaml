@@ -1,0 +1,61 @@
+# NetPilot 舰队声明模板 —— cp network.example.yaml network.yaml 后改成你自己的
+# ${VAR} 占位符从 .env 解析；本文件无密钥，可安全提交
+
+fleet:
+  name: my-home            # 舰队名（面板标题侧展示）
+  timezone: Asia/Shanghai
+
+# ── 代理面：一台 Clash/mihomo 内核（OpenWrt OpenClash / 服务器 mihomo 皆可）──
+# 没有代理面？仍可部署：面板的设备监控/守护/通知照常工作，仅"分组/出口拨测"为空。
+router:
+  id: r1
+  name: 主路由 (mihomo)
+  host: 192.168.1.2        # mihomo 所在机
+  api:
+    port: 9090             # external-controller 端口
+    secret: ${MIHOMO_SECRET}
+  ssh:                     # 仅供受控写操作（重启内核）；不用可删
+    user: root
+    password: ${ROUTER_SSH_PASSWORD}
+  lanscan:                 # 局域网新设备发现（SSH 读路由器 ARP 表）
+    enabled: true
+    everySeconds: 90
+  groups: [AI, Web]        # 面板展示的代理分组顺序
+
+# ── 被监控设备：probe 必填，agent 可选 ──
+devices:
+  - id: server             # collector 所在机也建议纳管（127.0.0.1 探针 + push agent）
+    name: 家庭服务器
+    host: 192.168.1.10
+    role: collector-host
+    probes:
+      # 容器探"宿主机自己"打 host.docker.internal，避开宿主机策略路由黑洞
+      - { type: tcp, port: 22, host: host.docker.internal }
+  - id: laptop
+    name: 笔记本
+    host: 192.168.1.20
+    role: workstation
+    probes:
+      - { type: tcp, port: 22 }
+  - id: tv                 # 装不了 agent 的设备用 ICMP/TCP 纳入
+    name: 电视
+    host: 192.168.1.30
+    role: mobile
+    probes:
+      - { type: icmp }
+
+# ── 自建出口（VPS）；有机场订阅则由 mihomo provider 自动纳入 ──
+exits:
+  - id: vps1
+    name: 海外-VPS
+    host: 203.0.113.10
+    probes:
+      - { type: tcp, port: 443 }
+
+# ── 守护规则：check 连续失败 failStreak 轮 → heal + 告警通知 ──
+repairs: []
+#  - id: vps1-tunnel
+#    name: vps1 隧道守卫
+#    everySeconds: 120
+#    check: { kind: tcp, host: 203.0.113.10, port: 8443 }
+#    heal:  { kind: ssh, host: 203.0.113.10, user: root, key: /app/keys/vps1, command: "systemctl restart wg-quick@wg0" }
