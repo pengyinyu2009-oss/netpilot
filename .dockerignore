@@ -1,0 +1,9 @@
+node_modules
+**/node_modules
+.git
+keys
+.env
+network.yaml
+*.log
+.DS_Store
+packages/web/dist

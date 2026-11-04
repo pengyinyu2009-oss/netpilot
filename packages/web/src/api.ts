@@ -50,6 +50,8 @@ export const api = {
   lan: () => req('/api/lan'),
   trafficDaily: (days = 14) => req(`/api/traffic/daily?days=${days}`),
   notifyTest: () => req('/api/notify/test', { method: 'POST' }, true),
+  onboarding: () => req('/api/onboarding'),
+  dismissOnboarding: () => req('/api/onboarding/dismiss', { method: 'POST' }, true),
 };
 
 export function fmtBytes(n: number): string {

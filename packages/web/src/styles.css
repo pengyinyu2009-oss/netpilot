@@ -213,3 +213,19 @@ body {
   background: var(--accent); color: #fff; font-size: 15px; font-weight: 600; cursor: pointer;
 }
 .gate button:disabled { opacity: 0.5; }
+
+/* ── 上手引导卡 ── */
+.onboard-card { border: 1px solid rgba(0,122,255,.25); background: linear-gradient(180deg, #f5f9ff 0%, #ffffff 60%); }
+.onboard-step { display: flex; gap: 10px; padding: 8px 0; }
+.onboard-n {
+  flex: none; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--accent); color: #fff; font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; margin-top: 1px;
+}
+.onboard-cmd {
+  margin-top: 6px; padding: 8px 10px; background: var(--card2); border: 0.5px solid var(--border);
+  border-radius: 8px; font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-all;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text);
+}
+.onboard-card code { background: var(--card2); border-radius: 4px; padding: 1px 5px; font-size: 11px; }
+.onboard-foot { display: flex; justify-content: space-between; align-items: center; padding-top: 8px; margin-top: 4px; border-top: 0.5px solid var(--border); }

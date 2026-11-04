@@ -143,6 +143,29 @@ export function registerRoutes(app: FastifyInstance, cfg: NetworkConfig, mihomo:
 
   app.get('/api/devices', { preHandler: requireScope('read') }, async () => store.listDevices());
 
+  // ── 上手引导：模板未改/全探针失败且无 agent 时提示三步配置 ──
+  app.get('/api/onboarding', { preHandler: requireScope('read') }, async (req) => {
+    const dismissed = store.getKv('onboarding_dismissed') === '1';
+    const s = poller.fleetStatus();
+    const devs = s.devices;
+    const templateUntouched = devs.length > 0 &&
+      devs.every(d => /^(192\.0\.2\.|203\.0\.113\.|198\.51\.100\.)/.test(d.host));
+    const anyProbeOk = devs.some(d => d.latest?.ok);
+    const agentCount = store.listDevices().length;
+    const needsSetup = !dismissed && (templateUntouched || (!anyProbeOk && agentCount === 0));
+    return {
+      needsSetup, dismissed, templateUntouched,
+      deviceCount: devs.length, anyProbeOk, agentCount,
+      collectorUrl: `http://${req.headers.host ?? ''}`,
+    };
+  });
+
+  // dismiss 是本地 UI 偏好，读令牌即可（新人首次只粘读令牌）
+  app.post('/api/onboarding/dismiss', { preHandler: requireScope('read') }, async () => {
+    store.setKv('onboarding_dismissed', '1');
+    return { ok: true };
+  });
+
   // ── 诊断 / 流量统计 / 局域网 / 通知测试 ──
   app.get('/api/diagnose', { preHandler: requireScope('read') }, async () => diagnose(cfg, mihomo, poller, repairs));
   app.get('/api/traffic/daily', { preHandler: requireScope('read') }, async (req) => {

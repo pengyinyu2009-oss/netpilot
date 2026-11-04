@@ -50,6 +50,10 @@ interface ActionSpec { kind: string; group?: string; host?: string; user?: strin
 interface DiagItem { name: string; ok: boolean; detail: string }
 interface DiagResult { ts: number; items: DiagItem[] }
 interface LanRow { mac: string; ip: string; first_seen: number; last_seen: number }
+interface Onboarding {
+  needsSetup: boolean; dismissed: boolean; templateUntouched: boolean;
+  deviceCount: number; anyProbeOk: boolean; agentCount: number; collectorUrl: string;
+}
 interface RepairRow {
   id: string; name: string; enabled: boolean; everySeconds: number; failStreak?: number;
   check: CheckSpec; heal?: ActionSpec;
@@ -361,6 +365,7 @@ export default function App() {
   const [diag, setDiag] = useState<DiagResult | null>(null);
   const [diagBusy, setDiagBusy] = useState(false);
   const [lanDevs, setLanDevs] = useState<LanRow[]>([]);
+  const [onboard, setOnboard] = useState<Onboarding | null>(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState('rule');
@@ -391,7 +396,7 @@ export default function App() {
         if (tab === 'conns') setConns(await api.connections(60));
         if (tab === 'alerts') setAlerts(await api.alerts());
         if (tab === 'rules') setRepairs(await api.repairs());
-        if (tab === 'fleet') setLanDevs(await api.lan());
+        if (tab === 'fleet') { setLanDevs(await api.lan()); setOnboard(await api.onboarding()); }
       } catch (e) { setErr((e as Error).message); }
     };
     void load();
@@ -470,6 +475,37 @@ export default function App() {
           ? <DetailView id={detailId} onBack={() => setDetailId(null)} />
           : <>
         {err && <div className="card" style={{ color: 'var(--red)', fontSize: 13 }}>{err}</div>}
+
+        {tab === 'fleet' && onboard?.needsSetup && (
+          <div className="card onboard-card">
+            <h2>👋 上手引导（3 步，约 5 分钟）</h2>
+            <div className="onboard-step">
+              <span className="onboard-n">1</span>
+              <div>
+                <b>把示例设备改成你家的</b>
+                <div className="meta">编辑服务器上的 <code>network.yaml</code>（设备 IP/名字），然后 <code>docker compose up -d</code></div>
+              </div>
+            </div>
+            <div className="onboard-step">
+              <span className="onboard-n">2</span>
+              <div>
+                <b>给每台机器装 agent</b>（复制到机器上执行，IP 已填好）
+                <pre className="onboard-cmd">scp agents/netpilot-agent.sh agents/install-agent.sh &lt;机器&gt;:/tmp/ &amp;&amp; ssh &lt;机器&gt; "AGENT_ID=mypc AGENT_NAME=我的电脑 NETPILOT_URL={onboard.collectorUrl} NETPILOT_TOKEN=&lt;.env里的AGENT_TOKEN&gt; sh /tmp/install-agent.sh"</pre>
+              </div>
+            </div>
+            <div className="onboard-step">
+              <span className="onboard-n">3</span>
+              <div>
+                <b>告警推手机</b>
+                <div className="meta">.env 里 <code>NOTIFY_PROVIDER=ntfy</code> + <code>NOTIFY_NTFY_URL</code>，手机 ntfy App 订阅同一 topic</div>
+              </div>
+            </div>
+            <div className="onboard-foot">
+              <span className="meta">当前：{onboard.templateUntouched ? 'network.yaml 还是模板' : `设备 ${onboard.deviceCount} 台${onboard.agentCount ? '，agent 已上报' : '，暂无 agent'}`}</span>
+              <button className="chip" onClick={async () => { await api.dismissOnboarding(); setOnboard(null); }}>知道了</button>
+            </div>
+          </div>
+        )}
 
         {/* ── 舰队总览 ── */}
         {tab === 'fleet' && status && (
