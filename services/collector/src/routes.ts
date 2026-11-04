@@ -143,6 +143,42 @@ export function registerRoutes(app: FastifyInstance, cfg: NetworkConfig, mihomo:
 
   app.get('/api/devices', { preHandler: requireScope('read') }, async () => store.listDevices());
 
+  // ── 设备管理（UI 添加/删除；runtime 源存 SQLite，yaml 源只读不可删）──
+  app.post('/api/devices', { preHandler: requireScope('write') }, async (req, reply) => {
+    const b = (req.body ?? {}) as {
+      id?: string; name?: string; host?: string; role?: string;
+      probes?: { type?: string; port?: number }[];
+    };
+    const id = (b.id ?? '').trim();
+    const host = (b.host ?? '').trim();
+    if (!id || !host) return reply.code(400).send({ error: 'id 与 host 必填' });
+    if (!/^[\w.-]{1,40}$/.test(id)) return reply.code(400).send({ error: 'id 只能字母数字._-' });
+    if (cfg.devices.some(d => d.id === id)) return reply.code(409).send({ error: `id ${id} 已存在` });
+    // 探针：默认 icmp；tcp 需端口
+    const specs = (b.probes?.length ? b.probes : [{ type: 'icmp' }])
+      .map(p => p.type === 'tcp' && p.port ? { type: 'tcp' as const, port: Number(p.port) } : { type: 'icmp' as const })
+      .slice(0, 3);
+    const name = (b.name ?? '').trim() || id;
+    const role = (b.role ?? '').trim() || 'workstation';
+    store.addRuntimeDevice({ id, name, host, role, probes: specs });
+    cfg.devices.push({ id, name, host, role, probes: specs, source: 'runtime' });
+    store.logEvent('info', 'api', `add runtime device ${id} (${host})`);
+    return { ok: true, id };
+  });
+
+  app.delete('/api/devices/:id', { preHandler: requireScope('write') }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const i = cfg.devices.findIndex(d => d.id === id);
+    if (i < 0) return reply.code(404).send({ error: 'not found' });
+    if (cfg.devices[i].source !== 'runtime') {
+      return reply.code(403).send({ error: '配置文件里的设备不可删除（改 network.yaml）' });
+    }
+    store.removeRuntimeDevice(id);
+    cfg.devices.splice(i, 1);
+    store.logEvent('warn', 'api', `remove runtime device ${id}`);
+    return { ok: true };
+  });
+
   // ── 上手引导：模板未改/全探针失败且无 agent 时提示三步配置 ──
   app.get('/api/onboarding', { preHandler: requireScope('read') }, async (req) => {
     const dismissed = store.getKv('onboarding_dismissed') === '1';

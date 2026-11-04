@@ -5,7 +5,7 @@ import { api, getToken, setToken, getWriteToken, setWriteToken, fmtBytes, fmtMB,
 interface ProbePoint { ts: number; latencyMs: number | null; ok: boolean }
 interface AgentSummary { lastSeen: number; cpu?: number | null; memPct?: number | null; diskPct?: number | null }
 interface ExitStatus { id: string; name: string; host: string; latest: ProbePoint | null; history: ProbePoint[]; mihomoDelay: number | null; agent?: AgentSummary | null }
-interface DeviceStatus { id: string; name: string; host: string; role?: string; latest: ProbePoint | null; history: ProbePoint[]; agent?: AgentSummary | null }
+interface DeviceStatus { id: string; name: string; host: string; role?: string; source?: 'yaml' | 'runtime'; latest: ProbePoint | null; history: ProbePoint[]; agent?: AgentSummary | null }
 interface GroupMember { name: string; type: string; delay: number | null; alive: boolean }
 interface GroupStatus { name: string; type: string; now: string; members: GroupMember[] }
 interface ConnRow { host: string; src: string; chains: string; up: number; down: number; rule: string }
@@ -43,7 +43,7 @@ interface FleetStatus {
   exits: ExitStatus[];
 }
 
-type Tab = 'fleet' | 'exits' | 'rules' | 'groups' | 'conns' | 'alerts';
+type Tab = 'fleet' | 'devices' | 'exits' | 'rules' | 'groups' | 'conns' | 'alerts';
 
 interface CheckSpec { kind: string; group?: string; host?: string; port?: number; minDays?: number; max?: number; expect?: string; command?: string }
 interface ActionSpec { kind: string; group?: string; host?: string; user?: string; port?: number; command?: string }
@@ -366,6 +366,8 @@ export default function App() {
   const [diagBusy, setDiagBusy] = useState(false);
   const [lanDevs, setLanDevs] = useState<LanRow[]>([]);
   const [onboard, setOnboard] = useState<Onboarding | null>(null);
+  const [devForm, setDevForm] = useState({ name: '', host: '', probe: 'icmp', port: '22' });
+  const [devBusy, setDevBusy] = useState(false);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState('rule');
@@ -396,7 +398,10 @@ export default function App() {
         if (tab === 'conns') setConns(await api.connections(60));
         if (tab === 'alerts') setAlerts(await api.alerts());
         if (tab === 'rules') setRepairs(await api.repairs());
-        if (tab === 'fleet') { setLanDevs(await api.lan()); setOnboard(await api.onboarding()); }
+        if (tab === 'fleet' || tab === 'devices') {
+          setLanDevs(await api.lan());
+          if (tab === 'fleet') setOnboard(await api.onboarding());
+        }
       } catch (e) { setErr((e as Error).message); }
     };
     void load();
@@ -437,6 +442,21 @@ export default function App() {
     setBusy(true);
     try { await api.setMode(m); setMode(m); } catch (e) { alert((e as Error).message); }
     finally { setBusy(false); }
+  };
+
+  const doAddDevice = async (f: { name: string; host: string; probe: string; port?: string }) => {
+    if (!f.host.trim()) return;
+    setDevBusy(true);
+    try {
+      const id = 'dev-' + f.host.replace(/[^\w.]/g, '_').slice(0, 30);
+      await api.addDevice({
+        id, name: f.name.trim() || f.host, host: f.host.trim(),
+        probes: f.probe === 'tcp' ? [{ type: 'tcp', port: Number(f.port) || 22 }] : [{ type: 'icmp' }],
+      });
+      setDevForm({ name: '', host: '', probe: 'icmp', port: '22' });
+      await refresh();
+    } catch (e) { alert((e as Error).message); }
+    finally { setDevBusy(false); }
   };
 
   const openAlerts = alerts.filter(a => a.status === 'open').length;
@@ -482,8 +502,8 @@ export default function App() {
             <div className="onboard-step">
               <span className="onboard-n">1</span>
               <div>
-                <b>把示例设备改成你家的</b>
-                <div className="meta">编辑服务器上的 <code>network.yaml</code>（设备 IP/名字），然后 <code>docker compose up -d</code></div>
+                <b>把示例设备换成你家的</b>
+                <div className="meta">最省事：去「🖥️ 设备」页一键添加（局域网发现/手动填 IP）；也可以编辑服务器上的 <code>network.yaml</code> 后 <code>docker compose up -d</code></div>
               </div>
             </div>
             <div className="onboard-step">
@@ -604,6 +624,90 @@ export default function App() {
                   </button>
                 ))}
               </div>
+            </div>
+          </>
+        )}
+
+        {/* ── 设备管理（UI 增删，YAML 可选）── */}
+        {tab === 'devices' && (
+          <>
+            {!getWriteToken() && (
+              <div className="card" style={{ color: 'var(--dim)', fontSize: 13 }}>
+                添加/删除设备需要写令牌（首次进入时填过就会记住）。
+              </div>
+            )}
+
+            {/* 局域网发现：一键加监控 */}
+            <div className="card">
+              <h2>发现的局域网设备（{lanDevs.length}）</h2>
+              {lanDevs.length === 0 && <div className="empty">扫描中…（约 1-2 分钟建立基线）</div>}
+              {lanDevs.slice(0, 10).map(l => {
+                const managed = status?.devices.some(d => d.host === l.ip);
+                return (
+                  <div className="row" key={l.mac}>
+                    <div style={{ minWidth: 0 }}>
+                      <div className="name">{l.ip}</div>
+                      <div className="meta">{l.mac}</div>
+                    </div>
+                    {managed
+                      ? <span className="badge ok">已监控</span>
+                      : <button className="chip" disabled={!getWriteToken() || devBusy}
+                          onClick={() => doAddDevice({ name: `设备 ${l.ip.split('.').slice(-1)[0]}`, host: l.ip, probe: 'icmp' })}>
+                          + 监控
+                        </button>}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* 手动添加 */}
+            <div className="card">
+              <h2>手动添加设备</h2>
+              <div className="dev-form">
+                <input placeholder="名字（如：客厅电视）" value={devForm.name}
+                  onChange={e => setDevForm({ ...devForm, name: e.target.value })} />
+                <input placeholder="IP 或主机名（如 192.168.1.33）" value={devForm.host}
+                  onChange={e => setDevForm({ ...devForm, host: e.target.value })} />
+                <div className="dev-form-row">
+                  <select value={devForm.probe} onChange={e => setDevForm({ ...devForm, probe: e.target.value })}>
+                    <option value="icmp">Ping 探针</option>
+                    <option value="tcp">TCP 端口</option>
+                  </select>
+                  {devForm.probe === 'tcp' && (
+                    <input placeholder="端口" value={devForm.port} style={{ width: 80 }}
+                      onChange={e => setDevForm({ ...devForm, port: e.target.value })} />
+                  )}
+                  <button className="btn-primary" disabled={devBusy || !getWriteToken() || !devForm.host}
+                    onClick={() => doAddDevice(devForm)}>
+                    {devBusy ? '添加中…' : '+ 添加'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* 已管设备列表 */}
+            <div className="card">
+              <h2>已管设备（{status?.devices.length ?? 0}）</h2>
+              {status?.devices.map(d => (
+                <div className="row" key={d.id}>
+                  <div style={{ minWidth: 0 }}>
+                    <div className="name">{d.name}</div>
+                    <div className="meta">{d.host} · {d.id} {d.source === 'runtime' ? '' : '· 配置文件'}</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {latBadge(d.latest)}
+                    {d.source === 'runtime' && (
+                      <button className="chip" disabled={devBusy || !getWriteToken()}
+                        onClick={async () => {
+                          setDevBusy(true);
+                          try { await api.removeDevice(d.id); await refresh(); }
+                          catch (e) { alert((e as Error).message); }
+                          finally { setDevBusy(false); }
+                        }}>删除</button>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           </>
         )}
@@ -750,6 +854,7 @@ export default function App() {
       <div className="tabbar">
         {([
           ['fleet', '🏠', '舰队'],
+          ['devices', '🖥️', '设备'],
           ['exits', '🌐', '出口'],
           ['rules', '🛡️', '守护'],
           ['groups', '🎛️', '分组'],

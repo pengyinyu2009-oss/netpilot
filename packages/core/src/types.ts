@@ -22,6 +22,7 @@ export interface DeviceSpec {
   role?: string;
   probes: ProbeSpec[];
   agent?: { pull?: AgentPullSpec };
+  source?: 'yaml' | 'runtime';   // runtime = UI 添加（存 SQLite，重启自动合并）
 }
 
 export interface ExitSpec {

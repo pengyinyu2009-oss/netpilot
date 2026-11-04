@@ -152,7 +152,7 @@ export class Poller {
     const devices = this.cfg.devices.map(d => {
       const h = store.history(`dev:${d.id}`, since);
       return {
-        id: d.id, name: d.name, host: d.host, role: d.role,
+        id: d.id, name: d.name, host: d.host, role: d.role, source: d.source,
         latest: h.length ? h[h.length - 1] : null, history: h,
         agent: agentSummary(d.id),
       };

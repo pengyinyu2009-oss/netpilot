@@ -15,7 +15,8 @@ async function req(path: string, init: RequestInit = {}, write = false) {
   const r = await fetch(BASE + path, {
     ...init,
     headers: {
-      'Content-Type': 'application/json',
+      // 无 body 的请求（DELETE 等）不能带 application/json：Fastify 解析空 body 会 400
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init.headers ?? {}),
     },
@@ -52,6 +53,10 @@ export const api = {
   notifyTest: () => req('/api/notify/test', { method: 'POST' }, true),
   onboarding: () => req('/api/onboarding'),
   dismissOnboarding: () => req('/api/onboarding/dismiss', { method: 'POST' }, true),
+  addDevice: (d: { id: string; name: string; host: string; role?: string; probes?: { type: string; port?: number }[] }) =>
+    req('/api/devices', { method: 'POST', body: JSON.stringify(d) }, true),
+  removeDevice: (id: string) =>
+    req(`/api/devices/${encodeURIComponent(id)}`, { method: 'DELETE' }, true),
 };
 
 export function fmtBytes(n: number): string {

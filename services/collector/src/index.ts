@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig, env } from './config.ts';
-import { initStore, logEvent, listDevices, accTraffic, pruneTraffic } from './store.ts';
+import { initStore, logEvent, listDevices, accTraffic, pruneTraffic, applyRuntimeDevices } from './store.ts';
 import { MihomoClient } from './mihomo.ts';
 import { Poller } from './poller.ts';
 import { Puller } from './puller.ts';
@@ -20,8 +20,10 @@ async function main() {
     console.warn('[netpilot] NETPILOT_AGENT_TOKEN 未设置：push 型 agent 将无法上报');
   }
 
-  const cfg = loadConfig();
   initStore(env.dbPath);
+  const cfg = loadConfig();
+  const merged = applyRuntimeDevices(cfg.devices);   // UI 添加的设备（SQLite 持久化）启动时并入
+  if (merged > 0) console.log(`[netpilot] merged ${merged} runtime devices`);
   const mihomo = new MihomoClient(cfg.router);
   const poller = new Poller(cfg, mihomo);
   const puller = new Puller(cfg);

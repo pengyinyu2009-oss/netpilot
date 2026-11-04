@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import type { ProbePoint, AgentMetrics, DeviceMetricPoint } from '../core-src/types.ts';
+import type { ProbePoint, AgentMetrics, DeviceMetricPoint, DeviceSpec } from '../core-src/types.ts';
 
 let db: DatabaseSync;
 
@@ -44,6 +44,10 @@ export function initStore(path: string) {
     CREATE TABLE IF NOT EXISTS lan_devices (
       mac TEXT PRIMARY KEY, ip TEXT,
       first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS runtime_devices (
+      id TEXT PRIMARY KEY, name TEXT, host TEXT, role TEXT,
+      probes TEXT NOT NULL, created_ts INTEGER NOT NULL
     );
   `);
   return db;
@@ -269,4 +273,38 @@ export function lanBaselineDone() { setKv('lan_baseline_done', '1'); }
 export function lanList(): { mac: string; ip: string; first_seen: number; last_seen: number }[] {
   return db.prepare('SELECT mac, ip, first_seen, last_seen FROM lan_devices ORDER BY first_seen DESC').all() as
     { mac: string; ip: string; first_seen: number; last_seen: number }[];
+}
+
+// ── runtime_devices（UI 添加的设备；network.yaml 是 ro 挂载，增设备走这里持久化）──
+export interface RuntimeDevice {
+  id: string; name: string; host: string; role: string;
+  probes: string;          // JSON 字符串（DB 原文）
+  created_ts: number;
+}
+
+export function listRuntimeDevices(): RuntimeDevice[] {
+  return db.prepare('SELECT * FROM runtime_devices ORDER BY created_ts ASC').all() as unknown as RuntimeDevice[];
+}
+
+export function addRuntimeDevice(d: Omit<RuntimeDevice, 'created_ts' | 'probes'> & { probes: unknown }): void {
+  db.prepare(`INSERT INTO runtime_devices (id, name, host, role, probes, created_ts) VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(d.id, d.name, d.host, d.role, JSON.stringify(d.probes), Date.now());
+}
+
+export function removeRuntimeDevice(id: string): boolean {
+  return Number(db.prepare('DELETE FROM runtime_devices WHERE id = ?').run(id).changes) > 0;
+}
+
+// 启动时把持久化的 runtime 设备并入 cfg.devices（yaml 里已有同 id 的跳过）
+export function applyRuntimeDevices(devices: DeviceSpec[]): number {
+  let n = 0;
+  for (const r of listRuntimeDevices()) {
+    if (devices.some(d => d.id === r.id)) continue;
+    devices.push({
+      id: r.id, name: r.name, host: r.host, role: r.role,
+      probes: JSON.parse(r.probes || '[]'), source: 'runtime',
+    });
+    n++;
+  }
+  return n;
 }

@@ -18,7 +18,7 @@ sh scripts/setup.sh
 
 打开 `http://<本机IP>:8898`，输入 `.env` 里的 `NETPILOT_READ_TOKEN` 即进面板。
 
-> 之后：改 `network.yaml` 填你的设备 → `docker compose up -d` → 按 [agents/README.md](agents/README.md) 给机器装 agent。
+> 之后：进面板「🖥️ 设备」页**一键添加设备**（局域网自动发现，点「+ 监控」即可，零 YAML）→ 按 [agents/README.md](agents/README.md) 给机器装 agent。高级玩家也可直接编辑 `network.yaml`（UI 添加的设备存 SQLite，重启不丢；yaml 与 UI 两种方式可混用）。
 
 ## 界面
 
